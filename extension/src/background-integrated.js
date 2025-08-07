@@ -494,10 +494,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           });
           
           // USE THE CUSTOM FILENAME!
-          const result = await syncHandoffToGitHub(
+          const result = await pushHandoffToGitHub(
             file.markdown, 
-            file.project || 'general', 
-            file.filename  // This is the key - pass the filename!
+            file.filename  // Push directly with filename
           );
           
           results.push({ 
@@ -545,5 +544,311 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   return true;
 });
+
+// =====================================
+// SIGNAL GENERATION & HANDOFF PROCESSING
+// =====================================
+
+// Enhanced Signal Generator with 1200 token limit and full file links
+class EnhancedSignalGenerator {
+  constructor() {
+    this.TOKEN_LIMIT = 1200; // ✨ INCREASED from 800
+    this.CHAR_TO_TOKEN_RATIO = 3;
+  }
+
+  generate(messages, metadata = {}, verbose = true) {
+    const signals = this.extractSignals(messages);
+    const type = this.detectType(signals);
+    
+    // Build structured signal handoff
+    let handoff = `# ${metadata.project || 'DuoEcho'} - ${type} Signal\n\n`;
+    handoff += `**Generated**: ${new Date().toISOString()}\n`;
+    handoff += `**Model**: ${metadata.model || 'unknown'}\n`;
+    handoff += `**Messages**: ${messages.length}\n\n`;
+    
+    // 🎯 STRUCTURED SECTIONS (Option 5)
+    handoff += this.buildStructuredContent(signals, type, verbose);
+    
+    return {
+      handoff,
+      type,
+      signals,
+      tokenEstimate: Math.ceil(handoff.length / this.CHAR_TO_TOKEN_RATIO)
+    };
+  }
+  
+  buildStructuredContent(signals, type, verbose) {
+    let content = '';
+    
+    // Key Decisions
+    const decisions = signals.filter(s => s.type === 'decision').slice(0, 3);
+    if (decisions.length > 0) {
+      content += `## Key Decisions\n`;
+      decisions.forEach(d => {
+        content += `- ${verbose ? d.text : d.text.substring(0, 150)}\n`;
+      });
+      content += '\n';
+    }
+    
+    // Errors & Gotchas
+    const errors = signals.filter(s => s.type === 'error').slice(0, 2);
+    if (errors.length > 0) {
+      content += `## Errors & Gotchas\n`;
+      errors.forEach(e => {
+        content += `- ${verbose ? e.text : e.text.substring(0, 150)}\n`;
+      });
+      content += '\n';
+    }
+    
+    // Code Changes
+    const code = signals.filter(s => s.type === 'code').slice(0, 3);
+    if (code.length > 0) {
+      content += `## Code Changes\n`;
+      code.forEach(c => {
+        content += `- ${c.text}\n`;
+      });
+      content += '\n';
+    }
+    
+    // Next Steps
+    const nexts = signals.filter(s => s.type === 'next').slice(0, 3);
+    if (nexts.length > 0) {
+      content += `## Next Steps\n`;
+      nexts.forEach(n => {
+        content += `- ${verbose ? n.text : n.text.substring(0, 150)}\n`;
+      });
+      content += '\n';
+    }
+    
+    return content;
+  }
+
+  extractSignals(messages) {
+    const signals = [];
+    
+    messages.forEach((msg, idx) => {
+      const text = msg.text || msg.content || '';
+      if (!text.trim()) return;
+      
+      // Error signals
+      if (/error|exception|failed|not working|broken/i.test(text)) {
+        signals.push({
+          type: 'error',
+          text: this.extractSentence(text, /error|exception|failed|broken/i),
+          weight: 5,
+          index: idx,
+          role: msg.role
+        });
+      }
+      
+      // Fix/solution signals
+      if (/fix(ed|ing)?|solved|solution|works now|resolved/i.test(text)) {
+        signals.push({
+          type: 'fix',
+          text: this.extractSentence(text, /fix|solved|works|resolved/i),
+          weight: 5,
+          index: idx,
+          role: msg.role
+        });
+      }
+      
+      // Decision signals
+      if (/decided|let's go with|we should|agreed|yes.*exactly|option [ABC]/i.test(text)) {
+        signals.push({
+          type: 'decision',
+          text: this.extractSentence(text, /decided|let's|should|agreed|option/i),
+          weight: 4,
+          index: idx,
+          role: msg.role
+        });
+      }
+      
+      // Next step signals
+      if (/next step|todo|need to|should now|then we|implement/i.test(text)) {
+        signals.push({
+          type: 'next',
+          text: this.extractSentence(text, /next|todo|need to|implement/i),
+          weight: 3,
+          index: idx,
+          role: msg.role
+        });
+      }
+      
+      // Code signals
+      if (/```|function\s|class\s|const\s|import\s/i.test(text)) {
+        const codeDesc = this.extractCodeDescription(text);
+        signals.push({
+          type: 'code',
+          text: codeDesc,
+          weight: 2,
+          index: idx,
+          role: msg.role
+        });
+      }
+    });
+    
+    return this.dedupeSignals(signals);
+  }
+  
+  extractSentence(text, pattern) {
+    const sentences = text.split(/[.!?]\s+/);
+    const matched = sentences.find(s => pattern.test(s));
+    if (matched) {
+      return matched.trim().substring(0, 400); // ✨ INCREASED from 300
+    }
+    
+    // Fallback: extract around the match
+    const match = text.match(pattern);
+    if (match) {
+      const start = Math.max(0, match.index - 50);
+      const end = Math.min(text.length, match.index + 200); // ✨ INCREASED
+      return '...' + text.substring(start, end).trim() + '...';
+    }
+    return text.substring(0, 400); // ✨ INCREASED
+  }
+  
+  extractCodeDescription(text) {
+    const funcMatch = text.match(/function\s+(\w+)/i);
+    const classMatch = text.match(/class\s+(\w+)/i);
+    const fileMatch = text.match(/([\w-]+\.(js|jsx|ts|tsx|py|md))/i);
+    
+    if (funcMatch) return `Function: ${funcMatch[1]}`;
+    if (classMatch) return `Class: ${classMatch[1]}`;
+    if (fileMatch) return `File: ${fileMatch[1]}`;
+    return 'Code implementation';
+  }
+  
+  dedupeSignals(signals) {
+    const seen = new Set();
+    const unique = [];
+    
+    signals.forEach(sig => {
+      const key = `${sig.type}:${sig.text.substring(0, 50)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(sig);
+      }
+    });
+    
+    return unique.sort((a, b) => b.weight - a.weight);
+  }
+  
+  detectType(signals) {
+    const types = signals.map(s => s.type);
+    
+    if (types.includes('error') || types.includes('fix')) {
+      return 'Debug';
+    }
+    if (types.filter(t => t === 'decision').length >= 2) {
+      return 'Architecture';
+    }
+    if (types.filter(t => t === 'code').length >= 2) {
+      return 'Implementation';
+    }
+    return 'General';
+  }
+}
+
+// Handle Claude JSON from content script
+async function handleClaudeJson(conversationData) {
+  try {
+    console.log('🎯 Processing Claude conversation:', {
+      id: conversationData.conversation_id,
+      name: conversationData.name,
+      messages: conversationData.messages?.length,
+      project: conversationData.metadata?.project
+    });
+    
+    // Generate timestamp
+    const timestamp = Date.now();
+    const safeTitle = (conversationData.name || 'untitled')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .slice(0, 40);
+    
+    const project = conversationData.metadata?.project?.toLowerCase() || 'duoecho';
+    
+    // Create both handoffs
+    const fullHandoff = generateFullHandoff(conversationData);
+    const signalGenerator = new EnhancedSignalGenerator();
+    const signalResult = signalGenerator.generate(
+      conversationData.messages, 
+      conversationData.metadata,
+      true // verbose = true
+    );
+    
+    // Generate filenames
+    const fullFilename = `${project}-full-${safeTitle}-${timestamp}.md`;
+    const signalFilename = `${project}-signal-${safeTitle}-${timestamp}.md`;
+    
+    // 🥇 ADD FULL FILE LINK TO SIGNAL (Option 3 - ESSENTIAL)
+    const signalWithLink = signalResult.handoff + 
+      `\n\n---\n🔗 **Full details**: https://github.com/sibrody/duoecho/blob/main/handoffs/${fullFilename}`;
+    
+    // Push both files to GitHub
+    const results = [];
+    
+    // Push full handoff
+    const fullResult = await pushHandoffToGitHub(fullHandoff, fullFilename);
+    results.push({ type: 'full', filename: fullFilename, ...fullResult });
+    
+    // Push signal handoff with link
+    const signalResult2 = await pushHandoffToGitHub(signalWithLink, signalFilename);
+    results.push({ type: 'signal', filename: signalFilename, ...signalResult2 });
+    
+    console.log('✅ Both handoffs created:', {
+      full: fullFilename,
+      signal: signalFilename,
+      signalTokens: signalResult.tokenEstimate
+    });
+    
+    return {
+      success: true,
+      results,
+      files: {
+        full: fullFilename,
+        signal: signalFilename
+      },
+      tokenEstimate: signalResult.tokenEstimate
+    };
+    
+  } catch (error) {
+    console.error('❌ Error processing Claude JSON:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// Generate full handoff markdown
+function generateFullHandoff(conversationData) {
+  const now = new Date().toISOString();
+  const conversationStart = conversationData.messages[0]?.created_at || now;
+  
+  let markdown = `# ${conversationData.metadata?.project || 'DuoEcho'} - "${conversationData.name}" - Full Handoff\n\n`;
+  
+  // YAML-style header with metadata
+  markdown += `**Conversation Start**: ${conversationStart}\n`;
+  markdown += `**Handoff Generated**: ${now}\n`;
+  markdown += `**Chat Title**: ${conversationData.name}\n`;
+  markdown += `**Model**: ${conversationData.metadata?.model || 'unknown'}\n`;
+  markdown += `**Project**: ${conversationData.metadata?.project || 'DuoEcho'}\n`;
+  markdown += `**Total Messages**: ${conversationData.messages?.length || 0}\n\n`;
+  
+  markdown += `## Conversation\n\n`;
+  
+  // Add all messages
+  conversationData.messages.forEach((msg, index) => {
+    const role = msg.role === 'user' ? 'Human' : 'Assistant';
+    const timestamp = msg.created_at ? new Date(msg.created_at).toLocaleTimeString() : '';
+    
+    markdown += `### **${role}**${timestamp ? ` (${timestamp})` : ''}\n\n`;
+    markdown += `${msg.text || msg.content || ''}\n\n`;
+    markdown += `---\n\n`;
+  });
+  
+  return markdown;
+}
 
 console.log('✅ Background service ready');
