@@ -1,0 +1,6 @@
+context_cue, policy_knobs, rationale
+frustrated>=0.7, verbosity=ultra_concise|offer=2_options|ask<=1, minimize time-to-accept
+high_ambiguity, ask=1_clarifier|state_assumptions, calibrate before branching
+canonical_first>0.8, retrieve=canonical|cite=true, authoritative trust
+deadline<48h & risk_posture>=0.7, choose_one|note_tradeoff|ship_now, bias to action
+cross_surface_handoff, paste_SOP|include_diff, continuity across threads

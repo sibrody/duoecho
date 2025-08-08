@@ -1,5 +1,5 @@
 // DuoEcho Popup Script - JSON Capture Version
-console.log('[DuoEcho] Popup script loading');
+console.log('[POP] DuoEcho popup ready');
 // === Progress Event Queue & Safe Handler ===
 let __duoDomReady = false;
 const __duoProgressQueue = [];

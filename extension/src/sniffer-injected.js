@@ -1,8 +1,8 @@
 (() => {
   try {
-    console.log('[DuoEcho] ✨ Page hooks installing...');
+    console.log('[PAGE] DuoEcho ✨ Page hooks installing...');
     if (window.__duoechoHooksInstalled) {
-      console.log('[DuoEcho] Hooks already installed, skipping');
+      console.log('[PAGE] Hooks already installed, skipping');
       return;
     }
     window.__duoechoHooksInstalled = true;

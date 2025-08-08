@@ -1,5 +1,28 @@
 // DuoEcho Background Service Worker - Fixed version
-console.log('🚀 DuoEcho background service started');
+(() => {
+  if (globalThis.__duoechoBannerShown) return;
+  globalThis.__duoechoBannerShown = true;
+
+  const VERSION = '1.1.0';
+  const BUILD = 'v1.1-stable';   // or env/commit short SHA
+  const TS = new Date().toISOString();
+  const DEV = true; // Gate with env flag so prod can go quiet
+  
+  if (!DEV) {
+    const originalLog = console.log;
+    console.log = () => {};
+    // Keep error/warn for debugging
+  }
+
+  // collapsed group keeps logs tidy
+  console.groupCollapsed(`🚀 DuoEcho SW v${VERSION} (${BUILD}) — ${TS}`);
+  console.log('Cold-start:', chrome.runtime?.id);
+  console.log('Handoffs dir:', 'handoffs/');
+  console.log('Repo:', 'github.com/sibrody/duoecho');
+  console.groupEnd();
+})();
+
+console.log('[SW] DuoEcho background service started');
 
 // GitHub Configuration
 const GITHUB_CONFIG = {
@@ -12,7 +35,7 @@ const GITHUB_CONFIG = {
 // DIAGNOSTIC: Add ping handler for CS testing
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'duoEchoPing') {
-    console.log('[DuoEcho SW] received ping from CS', sender);
+    console.log('[SW] received ping from CS', sender);
     sendResponse({ pong: true });
     return;
   }
@@ -851,4 +874,17 @@ function generateFullHandoff(conversationData) {
   return markdown;
 }
 
-console.log('✅ Background service ready');
+// SW lifecycle logging - helps when chasing cold start
+chrome.runtime.onInstalled.addListener((details) => {
+  console.log('[SW] onInstalled:', details.reason);
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  console.log('[SW] onStartup: Browser restart');
+});
+
+chrome.runtime.onSuspend.addListener(() => {
+  console.log('[SW] onSuspend: About to unload');
+});
+
+console.log('[SW] ✅ Background service ready');

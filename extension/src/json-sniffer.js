@@ -8,14 +8,14 @@
   let lastConversationHash = null;       // (MD5/SHA-1 helper you already had)
   
   // DIAGNOSTIC: Verify content script injection
-  console.log('[DuoEcho CS] json-sniffer.js loaded @', window.location.href);
+  console.log('[CS] DuoEcho json-sniffer.js loaded @', window.location.href);
   
   // DIAGNOSTIC: Test CS → SW message immediately
   chrome.runtime.sendMessage({ type: 'duoEchoPing' }, resp => {
-    console.log('[DuoEcho CS] ping resp:', resp, chrome.runtime.lastError);
+    console.log('[CS] ping resp:', resp, chrome.runtime.lastError);
   });
   
-  console.log('[DuoEcho] Content script starting...');
+  console.log('[CS] DuoEcho content script starting...');
   
   // Helper to create a simple hash of conversation for comparison
   function createConversationHash(conv) {
