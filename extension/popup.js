@@ -1,5 +1,20 @@
 // DuoEcho Popup Script - JSON Capture Version
 console.log('[POP] DuoEcho popup ready');
+
+// Warm-up ping to ensure SW is ready before any operations
+async function swReady(retries = 8) {
+  for (let i = 0; i < retries; i++) {
+    const ok = await new Promise(res => {
+      try {
+        chrome.runtime.sendMessage({ type: 'duoEchoPing' }, r => res(!!(r && r.pong)));
+      } catch { res(false); }
+    });
+    if (ok) return true;
+    await new Promise(r => setTimeout(r, 200 + i * 100));
+  }
+  return false;
+}
+
 // === Progress Event Queue & Safe Handler ===
 let __duoDomReady = false;
 const __duoProgressQueue = [];
@@ -361,4 +376,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
   }
 
+});
+
+// Initialize popup when DOM is ready
+document.addEventListener('DOMContentLoaded', async () => {
+  const ok = await swReady();
+  console.log('[POP] SW ready?', ok);
+  // Only enable "Capture" UI once ok === true
+  const captureBtn = document.getElementById('captureBtn');
+  if (captureBtn && !ok) {
+    captureBtn.disabled = true;
+    captureBtn.textContent = '⏳ Starting...';
+    captureBtn.title = 'Waiting for service worker to be ready';
+  }
 });

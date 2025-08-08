@@ -24,6 +24,29 @@
 
 console.log('[SW] DuoEcho background service started');
 
+// Safe message sending wrapper to silence "message port closed" errors
+function safeTabSendMessage(tabId, msg) {
+  try {
+    chrome.tabs.sendMessage(tabId, msg, () => {
+      const e = chrome.runtime.lastError;
+      if (e) console.debug('[SW] tabs.sendMessage (harmless):', e.message);
+    });
+  } catch (err) {
+    console.debug('[SW] tabs.sendMessage throw (harmless):', String(err));
+  }
+}
+
+function safeRuntimeSendMessage(msg) {
+  try {
+    chrome.runtime.sendMessage(msg, () => {
+      const e = chrome.runtime.lastError;
+      if (e) console.debug('[SW] runtime.sendMessage (harmless):', e.message);
+    });
+  } catch (err) {
+    console.debug('[SW] runtime.sendMessage throw (harmless):', String(err));
+  }
+}
+
 // GitHub Configuration
 const GITHUB_CONFIG = {
   owner: 'sibrody',
@@ -374,7 +397,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       conversationId: request.conversationId
     });
     // Fan-out to every open extension view (popup, options, etc.)
-    chrome.runtime.sendMessage(request);
+    safeRuntimeSendMessage(request);
     sendResponse({ success: true }); // ✅ FIXED: Respond to content script
     return;
   }
