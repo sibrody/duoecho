@@ -29,7 +29,7 @@
   chrome.runtime.sendMessage({ action: 'injectPageScript' }, (response) => {
     if (chrome.runtime.lastError) {
       console.error('[DuoEcho] Failed to request injection:', chrome.runtime.lastError);
-    } else if (response?.success) {
+    } else if (response && (response.success || response.ok)) {
       console.log('[DuoEcho] Page script injection requested successfully');
     } else {
       console.error('[DuoEcho] Injection failed:', response?.error);
