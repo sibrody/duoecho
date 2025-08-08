@@ -1,0 +1,45 @@
+{
+  "version": "2025-08-02",
+  "profile": {
+    "checks_canonical_first": {
+      "value": 0.9,
+      "confidence": 0.8,
+      "scope": "global",
+      "provenance": "essence",
+      "last_updated": "2025-08-02",
+      "half_life_days": 60
+    },
+    "prefers_simple_tools": {
+      "value": 0.85,
+      "confidence": 0.7,
+      "scope": "global",
+      "provenance": "essence",
+      "last_updated": "2025-08-02",
+      "half_life_days": 60
+    },
+    "verbosity": {
+      "value": 0.35,
+      "confidence": 0.7,
+      "scope": "surface:Claude",
+      "provenance": "essence",
+      "last_updated": "2025-08-02",
+      "half_life_days": 45
+    },
+    "evidence_appetite": {
+      "value": 0.7,
+      "confidence": 0.7,
+      "scope": "global",
+      "provenance": "essence",
+      "last_updated": "2025-08-02",
+      "half_life_days": 60
+    },
+    "risk_posture": {
+      "value": 0.6,
+      "confidence": 0.6,
+      "scope": "global",
+      "provenance": "essence",
+      "last_updated": "2025-08-02",
+      "half_life_days": 60
+    }
+  }
+}

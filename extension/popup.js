@@ -1,8 +1,75 @@
 // DuoEcho Popup Script - JSON Capture Version
-console.log('[DuoEcho] Popup script loading');
+console.log('[POP] DuoEcho popup ready');
 
+// Warm-up ping to ensure SW is ready before any operations
+async function swReady(retries = 8) {
+  for (let i = 0; i < retries; i++) {
+    const ok = await new Promise(res => {
+      try {
+        chrome.runtime.sendMessage({ type: 'duoEchoPing' }, r => res(!!(r && r.pong)));
+      } catch { res(false); }
+    });
+    if (ok) return true;
+    await new Promise(r => setTimeout(r, 200 + i * 100));
+  }
+  return false;
+}
+
+// === Progress Event Queue & Safe Handler ===
+let __duoDomReady = false;
+const __duoProgressQueue = [];
+
+/** Safely update progress UI elements; logs if elements are missing. */
+function handleProgressUpdate(msg) {
+  try {
+    const row = document.getElementById('progressRow');
+    const bar = document.getElementById('progressBar');
+    const note = document.getElementById('progressNote');
+
+    if (!row || !bar || !note) {
+      console.warn('[DuoEcho] Progress elements not found yet', { hasRow: !!row, hasBar: !!bar, hasNote: !!note });
+      return;
+    }
+
+    row.style.display = 'block';
+    const pct = Math.max(0, Math.min(100, Number(msg.pct || 0)));
+    bar.style.width = pct + '%';
+    note.textContent = msg.warn ? 'Approaching token limit…' : '';
+    console.log('[DuoEcho] Progress updated:', pct + '%');
+
+    if (pct >= 100) {
+      setTimeout(() => { row.style.display = 'none'; }, 1200);
+    }
+  } catch (e) {
+    console.error('[DuoEcho] Progress update error:', e);
+  }
+}
+
+// Replace previous direct handler with a queuing listener
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === 'duoechoTokenProgress') {
+    if (!__duoDomReady) {
+      __duoProgressQueue.push(msg);
+      console.log('[DuoEcho] Queued progress before DOM ready:', msg.pct);
+      return;
+    }
+    handleProgressUpdate(msg);
+  }
+});
+
+
+
+// DUOECHO: (replaced by safe queuing handler)
 // Wait for DOM to be ready
 document.addEventListener('DOMContentLoaded', async () => {
+  __duoDomReady = true;
+  try {
+    if (__duoProgressQueue.length) {
+      console.log('[DuoEcho] Flushing queued progress events:', __duoProgressQueue.length);
+      while (__duoProgressQueue.length) handleProgressUpdate(__duoProgressQueue.shift());
+    }
+  } catch (e) { console.warn('[DuoEcho] Flush error:', e); }
+
   console.log('[DuoEcho] DOM loaded, initializing popup');
   
   // Get all our elements
@@ -49,6 +116,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // Wire capture button click
     captureBtn.addEventListener('click', async () => {
+      // Reset progress bar
+      const progressRow = document.getElementById('progressRow');
+      const progressBar = document.getElementById('progressBar');
+      const progressNote = document.getElementById('progressNote');
+      if (progressRow) progressRow.style.display = 'block';
+      if (progressBar) progressBar.style.width = '0%';
+      if (progressNote) progressNote.textContent = '';
+      
       // Debounce to prevent spam clicking
       if (debounceTimer) {
         console.log('[DuoEcho] Debounced click ignored');
@@ -299,5 +374,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         </div>
       `;
     }
+  }
+
+});
+
+// Initialize popup when DOM is ready
+document.addEventListener('DOMContentLoaded', async () => {
+  const ok = await swReady();
+  console.log('[POP] SW ready?', ok);
+  // Only enable "Capture" UI once ok === true
+  const captureBtn = document.getElementById('captureBtn');
+  if (captureBtn && !ok) {
+    captureBtn.disabled = true;
+    captureBtn.textContent = '⏳ Starting...';
+    captureBtn.title = 'Waiting for service worker to be ready';
   }
 });
