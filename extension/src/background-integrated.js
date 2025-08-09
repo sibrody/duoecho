@@ -124,7 +124,7 @@ function safeRuntimeSendMessage(msg) {
 const GITHUB_CONFIG = {
   owner: 'sibrody',
   repo: 'duoecho',
-  branch: 'main',
+  branch: 'handoffs-bot',
   folder: 'handoffs'
 };
 
