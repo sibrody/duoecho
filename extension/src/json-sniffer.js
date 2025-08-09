@@ -1,6 +1,38 @@
 // DuoEcho Content Script - Simple bridge between page and extension
 // Requests background to inject page script, then listens for messages
 
+/* DuoEcho CS Guardrails — single-init + domain fence */
+(() => {
+  if (window.__DUOECHO_CS_LOADED__) {
+    console.debug('[DuoEcho][CS] duplicate load, ignoring');
+    return;
+  }
+  window.__DUOECHO_CS_LOADED__ = true;
+
+  // only run on the sites we expect (belt & suspenders vs manifest)
+  const ok = /^https:\/\/(claude\.ai|chat\.openai\.com)\//.test(location.href);
+  if (!ok) {
+    console.debug('[DuoEcho][CS] domain fence blocked init:', location.href);
+    return;
+  }
+})();
+
+// ---- SW handshake with retries (MV3 cold-start guard)
+async function duoechoEnsureSWReady(retries = 10) {
+  const delay = (ms) => new Promise(r => setTimeout(r, ms));
+  for (let i = 0; i < retries; i++) {
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'duoEchoPing' });
+      if (resp && resp.pong) return true;
+    } catch (e) {
+      // ignore and retry
+    }
+    await delay(200 + i * 150); // small backoff
+  }
+  console.warn('[DuoEcho CS] SW not ready after retries');
+  return false;
+}
+
 (() => {
   const DUOECHO_MSG = 'DUOECHO_CLAUDE_JSON';
   let latestConversation = null;
@@ -10,27 +42,6 @@
   // DIAGNOSTIC: Verify content script injection
   console.log('[CS] DuoEcho json-sniffer.js loaded @', window.location.href);
   
-  // DIAGNOSTIC: Test CS → SW message immediately
-  chrome.runtime.sendMessage({ type: 'duoEchoPing' }, resp => {
-    console.log('[CS] ping resp:', resp, chrome.runtime.lastError);
-  });
-  
-  console.log('[CS] DuoEcho content script starting...');
-  
-  // Warm-up ping to ensure SW is ready before injection
-  async function swReady(retries = 8) {
-    for (let i = 0; i < retries; i++) {
-      const ok = await new Promise(res => {
-        try {
-          chrome.runtime.sendMessage({ type: 'duoEchoPing' }, r => res(!!(r && r.pong)));
-        } catch { res(false); }
-      });
-      if (ok) return true;
-      await new Promise(r => setTimeout(r, 200 + i * 100));
-    }
-    return false;
-  }
-  
   // Helper to create a simple hash of conversation for comparison
   function createConversationHash(conv) {
     if (!conv) return null;
@@ -39,13 +50,18 @@
     return `${conv.conversation_id}-${conv.messages?.length}-${lastMsg?.id}`;
   }
   
-  // Step 1: Warm up SW then inject the page script
+  // Step 1: Wait for DOM ready, then ensure SW is ready before injection
   (async () => {
-    const ok = await swReady();
-    if (!ok) {
+    if (document.readyState === 'loading') {
+      await new Promise(r => document.addEventListener('DOMContentLoaded', r, { once: true }));
+    }
+    
+    const swReady = await duoechoEnsureSWReady();
+    if (!swReady) {
       console.warn('[CS] SW not ready after retries; postponing inject');
       return;
     }
+    
     chrome.runtime.sendMessage({ action: 'injectPageScript' }, r => {
       console.log('[CS] inject result:', r, chrome.runtime.lastError);
     });
@@ -66,6 +82,10 @@
     
     // Tell the extension (including the popup) we have fresh data
     console.log('[DuoEcho] Sending ready message to background...');
+    
+    // Clear badge on new conversation
+    chrome.runtime.sendMessage({ type: 'duoechoTokenProgress', clear: true });
+    
     chrome.runtime.sendMessage({
       type: 'duoEchoConversationReady',
       count: event.data.payload.messages?.length || 0,
@@ -86,6 +106,7 @@
     
     // Handle token progress for HUD
     if (request?.type === 'duoechoTokenProgress' && typeof request.pct === 'number') {
+      console.log('[CS] HUD progress', request.pct); // <— sanity log
       try {
         // Forward to HUD if it exists
         if (window.duoechoUpdateBadge) {
