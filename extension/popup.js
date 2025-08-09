@@ -1,3 +1,12 @@
+/* DuoEcho Popup Guardrails — single-init */
+(() => {
+  if (window.__DUOECHO_POPUP_INIT__) {
+    console.debug('[DuoEcho][POP] duplicate init');
+    return;
+  }
+  window.__DUOECHO_POPUP_INIT__ = true;
+})();
+
 // DuoEcho Popup Script - JSON Capture Version
 console.log('[POP] DuoEcho popup ready');
 
@@ -388,5 +397,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     captureBtn.disabled = true;
     captureBtn.textContent = '⏳ Starting...';
     captureBtn.title = 'Waiting for service worker to be ready';
+  } else if (captureBtn && ok) {
+    // SW is ready, enable capture UI
+    captureBtn.disabled = false;
   }
 });

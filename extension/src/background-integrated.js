@@ -1,3 +1,41 @@
+/* DuoEcho SW Guardrails — v1.1.x
+   - Single-load guard
+   - Version pin + drift warning
+   - Strict patch surface for Claude (only edit inside PATCHABLE blocks)
+*/
+'use strict';
+(() => {
+  const G = globalThis; // service worker global (no window)
+
+  // prevent duplicate loads
+  if (G.__DUOECHO_SW_LOADED__) {
+    console.warn('[DuoEcho][SW] duplicate load, ignoring');
+    return; // bail out early
+  }
+  G.__DUOECHO_SW_LOADED__ = true;
+
+  // pin current SW version (adjust when you intentionally rev)
+  const VERSION = '1.1.0';
+  if (G.__DUOECHO_SW_VERSION__ && G.__DUOECHO_SW_VERSION__ !== VERSION) {
+    console.warn('[DuoEcho][SW] version drift:', G.__DUOECHO_SW_VERSION__, '->', VERSION);
+  }
+  G.__DUOECHO_SW_VERSION__ = VERSION;
+
+  // editable regions only (Claude: DO NOT touch outside PATCHABLE blocks)
+  G.__DUOECHO_PATCHABLE__ = Object.freeze({
+    // allow edits to these named functions / blocks only:
+    allow: [
+      'generateSignalFromJson',   // signal builder
+      'tryAppendProgress',        // token progress
+      'gh*',                      // GitHub helpers
+      'badge*'                    // badge helpers
+    ]
+  });
+
+  // tiny assert helper you can sprinkle where needed
+  G.__DE_ASSERT = (name, cond) => { if (!cond) console.warn('[DuoEcho][ASSERT]', name); };
+})();
+
 // DuoEcho Background Service Worker - Fixed version
 (() => {
   if (globalThis.__duoechoBannerShown) return;
@@ -24,11 +62,23 @@
 
 console.log('[SW] DuoEcho background service started');
 
+// TEMP BADGE SELF-TEST (remove after verifying)
+setTimeout(() => {
+  try {
+    badgeStart(1200);
+    setTimeout(() => badgeUpdate(50, 600, 1200), 600);
+    setTimeout(() => badgeUpdate(100, 950, 1200), 1200);
+    setTimeout(() => badgeClear(), 2500);
+  } catch (e) {
+    console.warn('[DuoEcho][TEST] badge test failed:', e);
+  }
+}, 500);
+
 // Track active tab for token progress messages
 let lastActiveTabId = null;
 
 // --- Badge helpers (put near top, after your banner) ---
-const SIGNAL_TOKEN_LIMIT = typeof SIGNAL_TOKEN_LIMIT !== 'undefined' ? SIGNAL_TOKEN_LIMIT : 1200;
+const SIGNAL_TOKEN_LIMIT = 1200;
 
 function badgeClear() {
   try { chrome.action.setBadgeText({ text: '' }); } catch {}
@@ -77,17 +127,6 @@ const GITHUB_CONFIG = {
   branch: 'main',
   folder: 'handoffs'
 };
-
-// DIAGNOSTIC: Add ping handler for CS testing
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === 'duoEchoPing') {
-    console.log('[SW] received ping from CS', sender);
-    sendResponse({ pong: true });
-    return;
-  }
-  
-  // Continue with existing handlers below...
-});
 
 // Push handoff to GitHub - THIS IS THE ONLY VERSION
 async function pushHandoffToGitHub(content, filename) {
@@ -341,71 +380,19 @@ function generateSignalFromJson(json, verbose = true) {
   return signal;
 }
 
-// Handle Claude JSON from json-sniffer
-async function handleClaudeJson(json) {
-  try {
-    console.log('🎯 Processing conversation:', json.name);
-    
-    // Generate both versions (signal now verbose by default)
-    const fullMarkdown = jsonToMarkdown(json);
-    const signalMarkdown = generateSignalFromJson(json);
-    
-    // Create filenames with chat title and timestamp
-    const title = json.name || 'untitled';
-    const safeTitle = title.toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')  // Replace non-alphanumeric with hyphens
-      .replace(/^-+|-+$/g, '')      // Remove leading/trailing hyphens
-      .slice(0, 60);                // Limit length
-    
-    const timestamp = Date.now();
-    const project = 'duoecho';  // Always use duoecho for our captures
-    
-    const fullFilename = `${project}-full-${safeTitle}-${timestamp}.md`;
-    const signalFilename = `${project}-signal-${safeTitle}-${timestamp}.md`;
-    
-    console.log('📝 Generated files:', { fullFilename, signalFilename });
-    
-    // Sync both to GitHub
-    const results = [];
-    
-    // Sync full version
-    const fullResult = await syncHandoffToGitHub(fullMarkdown, project, fullFilename);
-    results.push({ type: 'full', ...fullResult });
-    
-    // Sync signal version
-    const signalResult = await syncHandoffToGitHub(signalMarkdown, project, signalFilename);
-    results.push({ type: 'signal', ...signalResult });
-    
-    // Store JSON locally for future processing
-    await chrome.storage.local.set({
-      [`conversation_${json.conversation_id}`]: {
-        json: json,
-        captured_at: new Date().toISOString(),
-        synced: results.every(r => r.success)
-      }
-    });
-    
-    return {
-      success: true,
-      message: 'JSON processed and synced',
-      files: [
-        { name: fullFilename, url: fullResult.url },
-        { name: signalFilename, url: signalResult.url }
-      ],
-      messageCount: json.messages.length
-    };
-  } catch (error) {
-    console.error('❌ Error processing JSON:', error);
-    throw error;
-  }
-}
-
 // Message listener
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // Track active tab for token progress messages
   if (sender?.tab?.id) lastActiveTabId = sender.tab.id;
   
   console.log('Background received message:', request.action || request.type);
+  
+  // Handle ping for SW handshake
+  if (request.type === 'duoEchoPing') {
+    console.log('[SW] received ping from CS', sender);
+    sendResponse({ pong: true, time: Date.now() });
+    return true;
+  }
   
   // 🔌 Health check ping/pong
   if (request.ping === 'duoecho') {

@@ -1,11 +1,13 @@
+/* DuoEcho Injected Hooks — single-install */
 (() => {
+  if (window.__duoechoHooksInstalled) {
+    console.debug('[DuoEcho][INJ] hooks already installed');
+    return;
+  }
+  window.__duoechoHooksInstalled = true;
+
   try {
     console.log('[PAGE] DuoEcho ✨ Page hooks installing...');
-    if (window.__duoechoHooksInstalled) {
-      console.log('[PAGE] Hooks already installed, skipping');
-      return;
-    }
-    window.__duoechoHooksInstalled = true;
 
     const DUOECHO_MSG = 'DUOECHO_CLAUDE_JSON';
 
