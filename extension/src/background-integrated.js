@@ -24,6 +24,29 @@
 
 console.log('[SW] DuoEcho background service started');
 
+// Track active tab for token progress messages
+let lastActiveTabId = null;
+
+// --- Badge helpers (put near top, after your banner) ---
+const SIGNAL_TOKEN_LIMIT = typeof SIGNAL_TOKEN_LIMIT !== 'undefined' ? SIGNAL_TOKEN_LIMIT : 1200;
+
+function badgeClear() {
+  try { chrome.action.setBadgeText({ text: '' }); } catch {}
+  try { chrome.action.setTitle({ title: 'DuoEcho' }); } catch {}
+}
+function badgeStart(limit = SIGNAL_TOKEN_LIMIT) {
+  try { chrome.action.setBadgeBackgroundColor({ color: '#9ca3af' }); } catch {}
+  try { chrome.action.setBadgeText({ text: '0%' }); } catch {}
+  try { chrome.action.setTitle({ title: `DuoEcho: 0% • ${limit} left` }); } catch {}
+}
+function badgeUpdate(pct, used, limit = SIGNAL_TOKEN_LIMIT) {
+  const left  = Math.max(0, limit - (used || 0));
+  const color = pct >= 100 ? '#16a34a' : pct >= 80 ? '#2563eb' : '#6b7280';
+  try { chrome.action.setBadgeBackgroundColor({ color }); } catch {}
+  try { chrome.action.setBadgeText({ text: `${pct}%` }); } catch {}
+  try { chrome.action.setTitle({ title: `DuoEcho: ${pct}% • ${left} left` }); } catch {}
+}
+
 // Safe message sending wrapper to silence "message port closed" errors
 function safeTabSendMessage(tabId, msg) {
   try {
@@ -379,6 +402,9 @@ async function handleClaudeJson(json) {
 
 // Message listener
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Track active tab for token progress messages
+  if (sender?.tab?.id) lastActiveTabId = sender.tab.id;
+  
   console.log('Background received message:', request.action || request.type);
   
   // 🔌 Health check ping/pong
@@ -390,6 +416,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   // Relay ready message from content script to popup
   if (request?.type === 'duoEchoConversationReady') {
+    badgeClear(); // reset for a fresh chat
     console.log('Background: Relaying ready message to all extension views');
     console.log('Message contains:', {
       title: request.title,
@@ -805,6 +832,10 @@ async function handleClaudeJson(conversationData) {
       project: conversationData.metadata?.project
     });
     
+    // Start badge and emit initial progress
+    badgeStart(SIGNAL_TOKEN_LIMIT);
+    try { chrome.runtime.sendMessage({ type: 'duoechoTokenProgress', pct: 0, used: 0, limit: SIGNAL_TOKEN_LIMIT }); } catch {}
+    
     // Generate timestamp
     const timestamp = Date.now();
     const safeTitle = (conversationData.name || 'untitled')
@@ -816,12 +847,22 @@ async function handleClaudeJson(conversationData) {
     
     // Create both handoffs
     const fullHandoff = generateFullHandoff(conversationData);
+    
+    // Emit progress after full handoff (50%)
+    badgeUpdate(50, 600, SIGNAL_TOKEN_LIMIT);
+    try { chrome.runtime.sendMessage({ type: 'duoechoTokenProgress', pct: 50, used: 600, limit: SIGNAL_TOKEN_LIMIT }); } catch {}
+    
     const signalGenerator = new EnhancedSignalGenerator();
     const signalResult = signalGenerator.generate(
       conversationData.messages, 
       conversationData.metadata,
       true // verbose = true
     );
+    
+    // Emit progress after signal generation (100%)
+    badgeUpdate(100, signalResult.tokenEstimate, SIGNAL_TOKEN_LIMIT);
+    try { chrome.runtime.sendMessage({ type: 'duoechoTokenProgress', pct: 100, used: signalResult.tokenEstimate, limit: SIGNAL_TOKEN_LIMIT }); } catch {}
+    setTimeout(() => badgeClear(), 4000); // auto-clear after 4 seconds
     
     // Generate filenames
     const fullFilename = `${project}-full-${safeTitle}-${timestamp}.md`;

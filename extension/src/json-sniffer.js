@@ -66,6 +66,10 @@
     
     // Tell the extension (including the popup) we have fresh data
     console.log('[DuoEcho] Sending ready message to background...');
+    
+    // Clear badge on new conversation
+    chrome.runtime.sendMessage({ type: 'duoechoTokenProgress', clear: true });
+    
     chrome.runtime.sendMessage({
       type: 'duoEchoConversationReady',
       count: event.data.payload.messages?.length || 0,
@@ -86,6 +90,7 @@
     
     // Handle token progress for HUD
     if (request?.type === 'duoechoTokenProgress' && typeof request.pct === 'number') {
+      console.log('[CS] HUD progress', request.pct); // <— sanity log
       try {
         // Forward to HUD if it exists
         if (window.duoechoUpdateBadge) {
